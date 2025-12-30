@@ -7,17 +7,11 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.swing.Timer;
+import javax.swing.SwingUtilities;
 
 import database.Database;
-import model.BanditModel;
-import model.BulletModel;
-import model.EnemyBulletModel;
-import model.HistoryModel;
-import model.PlayerModel;
-import model.PlayerStatsModel;
-import model.RockModel;
+import model.*;
 import util.AudioManager;
 import util.CowboyDialog;
 import util.GameThread;
@@ -38,95 +32,194 @@ public class GamePresenter {
     
     // Game Objects
     private PlayerModel player;
-    private final List<BanditModel> bandits;
-    private final List<BulletModel> bullets;
-    private final List<EnemyBulletModel> enemyBullets;
-    private final List<RockModel> rocks;
+    private final List<BanditModel> bandits = new ArrayList<>();
+    private final List<BulletModel> bullets = new ArrayList<>();
+    private final List<EnemyBulletModel> enemyBullets = new ArrayList<>();
+    private final List<RockModel> rocks = new ArrayList<>();
+    private final List<PlayerStatsModel> allPlayersStats = new ArrayList<>();
     
-    // Stats tracking
+    // State Tracking
     private PlayerStatsModel currentStats;
-    private List<PlayerStatsModel> allPlayersStats;
-    
-    // Views
     private final MenuView menuView;
     private final GameView gameView;
-    
-    // Game Thread & Timers
     private GameThread gameThread;
     private Timer banditSpawnTimer;
     private Timer banditShootTimer;
-    private boolean gamePaused = false;
     
+    // Flags penting untuk mencegah looping
+    private boolean gamePaused = false;
+    private boolean isGameOver = false; 
+
     public GamePresenter() {
-        this.bandits = new ArrayList<>();
-        this.bullets = new ArrayList<>();
-        this.enemyBullets = new ArrayList<>();
-        this.rocks = new ArrayList<>();
-        this.allPlayersStats = new ArrayList<>();
-        
         this.menuView = new MenuView(this);
         this.gameView = new GameView(this);
     }
+
+    // ==================== Missing Methods for View Compatibility ====================
+
+    /**
+     * Mengecek apakah game sedang dalam kondisi pause.
+     * Dibutuhkan oleh GameView dan GamePanel untuk render overlay "PAUSED".
+     */
+    public boolean isGamePaused() {
+        return gamePaused;
+    }
+
+    /**
+     * Mengambil statistik pemain saat ini.
+     * Dibutuhkan oleh GamePanel untuk menampilkan jumlah tembakan meleset (MISSED).
+     */
+    public PlayerStatsModel getCurrentStats() {
+        return currentStats;
+    }
+
+    /**
+     * Menambahkan statistik pemain ke list riwayat sesi ini.
+     * Dibutuhkan oleh MenuView.
+     */
+    public void addPlayerStats(PlayerStatsModel stats) {
+        if (stats != null) {
+            allPlayersStats.add(stats);
+        }
+    }
+
+    /**
+     * Mengembalikan list semua statistik pemain dalam sesi ini.
+     */
+    public List<PlayerStatsModel> getAllPlayersStats() {
+        return allPlayersStats;
+    }
+
+    /**
+     * Aksi untuk kembali ke menu dari tengah permainan.
+     * Dibutuhkan oleh GameView (Key Listener).
+     */
+    public void returnToMenu() {
+        if (!isGameOver && currentStats != null) {
+            saveHistory(); // Simpan progres sebelum keluar
+        }
+        showMenu();
+    }
     
-    // ==================== Menu Actions ====================
+    // ==================== Navigation Actions ====================
     
     public void showMenu() {
-        stopAllTimers();
-        gamePaused = false;
-        
-        CowboyDialog.clearDialog();
+        resetGameState();
         AudioManager.playMusic("menu_music.wav");
-        
         menuView.setVisible(true);
         gameView.setVisible(false);
     }
     
     public void startGame(String username) {
-        if (username == null || username.trim().isEmpty()) {
-            username = "Player1";
-        }
+        String finalName = (username == null || username.trim().isEmpty()) ? "Player1" : username;
         
+        resetGameState(); // Bersihkan data lama
+        initializeGame(finalName);
+        setupGameView();
+        
+        // Mulai sistem game
+        gameThread = new GameThread(this);
+        gameThread.start();
+        startTimers();
+        
+        AudioManager.playMusic("game_music.wav");
+    }
+
+    private void resetGameState() {
+        stopAllTimers();
+        if (gameThread != null) {
+            gameThread.stopGame();
+            gameThread = null;
+        }
+        isGameOver = false;
         gamePaused = false;
         CowboyDialog.clearDialog();
-        AudioManager.playMusic("game_music.wav");
-        
-        initializeGame(username);
-        setupGameView();
-        startGameLoop();
-        startTimers();
     }
     
     public void togglePause() {
+        if (isGameOver) return;
         gamePaused = !gamePaused;
         
         if (gamePaused) {
-            // Pause game
             if (banditSpawnTimer != null) banditSpawnTimer.stop();
             if (banditShootTimer != null) banditShootTimer.stop();
             AudioManager.stopMusic();
         } else {
-            // Resume game
             if (banditSpawnTimer != null) banditSpawnTimer.start();
             if (banditShootTimer != null) banditShootTimer.start();
             AudioManager.playMusic("game_music.wav");
         }
+        gameView.refresh();
+    }
+
+    // ==================== Game Logic ====================
+    
+    public void updateGame() {
+        // Kunci utama: Jika pause atau sudah game over, berhenti total.
+        if (gamePaused || isGameOver) return;
+        
+        updateBullets();
+        updateEnemyBullets();
+        updateBandits();
+        checkCollisions();
+        checkGameOver();
         
         gameView.refresh();
     }
     
-    public boolean isGamePaused() {
-        return gamePaused;
-    }
-    
-    public void returnToMenu() {
-        if (currentStats != null) {
-            saveHistory();
+    private void checkGameOver() {
+        if (player.getHp() <= 0 && !isGameOver) {
+            isGameOver = true; // Langsung kunci agar tidak masuk ke sini lagi
+            
+            // Simpan status terakhir
+            currentStats.setBulletsRemaining(player.getAmmo());
+            currentStats.setScore(player.getScore());
+
+            // Jalankan proses penyelesaian di thread UI agar tidak bentrok
+            SwingUtilities.invokeLater(() -> {
+                saveHistory(); 
+                endGame();
+            });
         }
+    }
+
+    private void endGame() {
+        stopAllTimers();
+        if (gameThread != null) {
+            gameThread.stopGame();
+        }
+        
+        // Tampilkan popup skor
+        gameView.showGameOverScreen(currentStats);
+        
+        // Kembali ke menu setelah dialog ditutup
         showMenu();
     }
+
+    // ==================== Database Operations ====================
     
-    // ==================== Game Initialization ====================
-    
+    private void saveHistory() {
+        if (currentStats == null) return;
+
+        String sql = "INSERT INTO history(username, score, ammo, bullets_missed) VALUES(?, ?, ?, ?)";
+        try (Connection conn = Database.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            
+            ps.setString(1, currentStats.getUsername());
+            ps.setInt(2, currentStats.getScore());
+            ps.setInt(3, currentStats.getBulletsRemaining());
+            ps.setInt(4, currentStats.getBulletsMissed());
+            
+            ps.executeUpdate();
+            System.out.println("History saved successfully for " + currentStats.getUsername());
+            
+        } catch (Exception e) {
+            System.err.println("Error saving history: " + e.getMessage());
+        }
+    }
+
+    // ==================== Internal Helpers ====================
+
     private void initializeGame(String username) {
         bandits.clear();
         bullets.clear();
@@ -136,151 +229,39 @@ public class GamePresenter {
         player = new PlayerModel(380, 260, username);
         currentStats = new PlayerStatsModel(username);
         
-        initializeRocks();
-        
-        System.out.println("Game initialized for: " + username);
-    }
-    
-    private void initializeRocks() {
-        // Generate random rock positions
+        // Posisi batu
         for (int i = 0; i < 3; i++) {
             int x = 150 + (i * 250) + (int)(Math.random() * 50 - 25);
             int y = 200 + (int)(Math.random() * 200);
             rocks.add(new RockModel(x, y, 64, 64));
         }
     }
-    
+
     private void setupGameView() {
-        menuView.setVisible(false);
-        
         GamePanel panel = new GamePanel(player, bullets, rocks, bandits, enemyBullets);
         panel.setPresenter(this);
-        
         gameView.setGamePanel(panel);
         gameView.setVisible(true);
+        menuView.setVisible(false);
         gameView.requestFocusInWindow();
     }
-    
-    // ==================== Game Loop ====================
-    
-    private void startGameLoop() {
-        gameThread = new GameThread(this);
-        gameThread.start();
+
+    private void startTimers() {
+        banditSpawnTimer = new Timer(BANDIT_SPAWN_INTERVAL, e -> spawnBandit());
+        banditShootTimer = new Timer(BANDIT_SHOOT_INTERVAL, e -> shootAllBandits());
+        banditSpawnTimer.start();
+        banditShootTimer.start();
     }
-    
-    public void updateGame() {
-        if (gamePaused) return;
-        
-        updateBullets();
-        updateEnemyBullets();
-        updateBandits();
-        checkCollisions();
-        checkGameOver();
-        gameView.refresh();
+
+    private void stopAllTimers() {
+        if (banditSpawnTimer != null) banditSpawnTimer.stop();
+        if (banditShootTimer != null) banditShootTimer.stop();
     }
-    
-    private void updateBullets() {
-        for (BulletModel bullet : bullets) {
-            bullet.update();
-            
-            // Check collision with rocks
-            boolean hitRock = false;
-            for (RockModel rock : rocks) {
-                if (bullet.getBounds().intersects(rock.getBounds())) {
-                    bullet.deactivate();
-                    hitRock = true;
-                    break;
-                }
-            }
-            
-            // Deactivate bullets that go off-screen
-            if (isOffScreen(bullet.getX(), bullet.getY())) {
-                if (!hitRock) {
-                    currentStats.incrementBulletsMissed();
-                }
-                bullet.deactivate();
-            }
-        }
-        bullets.removeIf(b -> !b.isActive());
-    }
-    
-    private void updateEnemyBullets() {
-        for (EnemyBulletModel enemyBullet : enemyBullets) {
-            enemyBullet.update();
-            
-            // Check collision with rocks
-            for (RockModel rock : rocks) {
-                if (enemyBullet.getBounds().intersects(rock.getBounds())) {
-                    enemyBullet.deactivate();
-                    break;
-                }
-            }
-            
-            // Check player hit
-            if (enemyBullet.isActive() && enemyBullet.getBounds().intersects(player.getBounds())) {
-                player.takeDamage(PLAYER_DAMAGE);
-                enemyBullet.deactivate();
-                continue;
-            }
-            
-            // Reward ammo for missed shots
-            if (isOffScreen(enemyBullet.getX(), enemyBullet.getY())) {
-                player.addAmmo(AMMO_REWARD_ON_MISS);
-                enemyBullet.deactivate();
-            }
-        }
-        enemyBullets.removeIf(b -> !b.isActive());
-    }
-    
-    private void updateBandits() {
-        for (BanditModel bandit : bandits) {
-            if (bandit.isAlive()) {
-                bandit.moveToward(player.getX(), player.getY());
-            }
-        }
-    }
-    
-    private void checkCollisions() {
-        for (BulletModel bullet : bullets) {
-            if (!bullet.isActive()) continue;
-            
-            for (BanditModel bandit : bandits) {
-                if (!bandit.isAlive()) continue;
-                
-                if (bullet.getBounds().intersects(bandit.getBounds())) {
-                    bandit.kill();
-                    bullet.deactivate();
-                    player.addScore(BANDIT_KILL_SCORE);
-                    currentStats.setScore(player.getScore());
-                    
-                    AudioManager.playSoundEffect("bandit_death.wav");
-                    CowboyDialog.triggerDialogForced();
-                    
-                    break;
-                }
-            }
-        }
-        
-        bandits.removeIf(b -> !b.isAlive());
-        bullets.removeIf(b -> !b.isActive());
-    }
-    
-    private void checkGameOver() {
-        if (player.getHp() <= 0) {
-            currentStats.setBulletsRemaining(player.getAmmo());
-            saveHistory();
-            endGame();
-        }
-    }
-    
-    private boolean isOffScreen(int x, int y) {
-        return x < -50 || x > SCREEN_WIDTH + 50 || y < -50 || y > SCREEN_HEIGHT + 50;
-    }
-    
-    // ==================== Player Actions ====================
-    
+
+    // ... (Metode updateBullets, updateEnemyBullets, movePlayer, shoot tetap sama namun tambahkan pengecekan isGameOver)
+
     public void movePlayer(int dx, int dy) {
-        if (gamePaused) return;
+        if (gamePaused || isGameOver) return;
         
         int nextX = player.getX() + dx;
         int nextY = player.getY() + dy;
@@ -290,205 +271,115 @@ public class GamePresenter {
             gameView.refresh();
         }
     }
-    
-    private boolean canMoveTo(int x, int y) {
-        Rectangle nextBounds = new Rectangle(x, y, 40, 40);
-        
-        for (RockModel rock : rocks) {
-            if (nextBounds.intersects(rock.getBounds())) {
-                return false;
-            }
-        }
-        return true;
-    }
-    
+
     public void shoot(int mouseX, int mouseY) {
-        if (gamePaused) return;
-        
-        if (player.getAmmo() <= 0) {
-            System.out.println("Out of ammo!");
-            return;
-        }
-        
+        if (gamePaused || isGameOver || player.getAmmo() <= 0) return;
+
         AudioManager.playSoundEffect("shoot.wav");
-        CowboyDialog.triggerDialog();
-        
         currentStats.incrementBulletsFired();
         
-        int playerCenterX = player.getX() + 20;
-        int playerCenterY = player.getY() + 20;
-        
-        double dx = mouseX - playerCenterX;
-        double dy = mouseY - playerCenterY;
+        // Logika perhitungan peluru (tetap sama)
+        double dx = mouseX - (player.getX() + 20);
+        double dy = mouseY - (player.getY() + 20);
         double distance = Math.sqrt(dx * dx + dy * dy);
         
-        if (distance == 0) return;
-        
-        double bulletSpeed = 8.0;
-        double vx = (dx / distance) * bulletSpeed;
-        double vy = (dy / distance) * bulletSpeed;
-        
-        bullets.add(new BulletModel(playerCenterX, playerCenterY, vx, vy));
-        player.useAmmo();
-        currentStats.setBulletsRemaining(player.getAmmo());
-        
-        gameView.refresh();
-    }
-    
-    // ==================== Enemy Actions ====================
-    
-    private void startTimers() {
-        banditSpawnTimer = new Timer(BANDIT_SPAWN_INTERVAL, e -> spawnBandit());
-        banditSpawnTimer.start();
-        
-        banditShootTimer = new Timer(BANDIT_SHOOT_INTERVAL, e -> shootAllBandits());
-        banditShootTimer.start();
-    }
-    
-    private void stopAllTimers() {
-        if (banditSpawnTimer != null) {
-            banditSpawnTimer.stop();
-            banditSpawnTimer = null;
-        }
-        if (banditShootTimer != null) {
-            banditShootTimer.stop();
-            banditShootTimer = null;
+        if (distance > 0) {
+            double vx = (dx / distance) * 8.0;
+            double vy = (dy / distance) * 8.0;
+            bullets.add(new BulletModel(player.getX() + 20, player.getY() + 20, vx, vy));
+            player.useAmmo();
+            currentStats.setBulletsRemaining(player.getAmmo());
         }
     }
-    
+
+    private void updateBullets() {
+        bullets.forEach(BulletModel::update);
+        // Cek collision batu & offscreen
+        bullets.removeIf(bullet -> {
+            boolean hitRock = rocks.stream().anyMatch(r -> bullet.getBounds().intersects(r.getBounds()));
+            boolean offScreen = isOffScreen(bullet.getX(), bullet.getY());
+            if (offScreen && !hitRock) currentStats.incrementBulletsMissed();
+            return hitRock || offScreen || !bullet.isActive();
+        });
+    }
+
+    private void updateEnemyBullets() {
+        enemyBullets.forEach(EnemyBulletModel::update);
+        enemyBullets.removeIf(eb -> {
+            if (eb.getBounds().intersects(player.getBounds())) {
+                player.takeDamage(PLAYER_DAMAGE);
+                return true;
+            }
+            if (isOffScreen(eb.getX(), eb.getY())) {
+                player.addAmmo(AMMO_REWARD_ON_MISS);
+                return true;
+            }
+            return rocks.stream().anyMatch(r -> eb.getBounds().intersects(r.getBounds()));
+        });
+    }
+
+    private void updateBandits() {
+        bandits.stream().filter(BanditModel::isAlive)
+               .forEach(b -> b.moveToward(player.getX(), player.getY()));
+    }
+
+    private void checkCollisions() {
+        for (BulletModel b : bullets) {
+            for (BanditModel bandit : bandits) {
+                if (bandit.isAlive() && b.getBounds().intersects(bandit.getBounds())) {
+                    bandit.kill();
+                    b.deactivate();
+                    player.addScore(BANDIT_KILL_SCORE);
+                    AudioManager.playSoundEffect("bandit_death.wav");
+                }
+            }
+        }
+        bandits.removeIf(b -> !b.isAlive());
+    }
+
+    private boolean isOffScreen(int x, int y) {
+        return x < -50 || x > SCREEN_WIDTH + 50 || y < -50 || y > SCREEN_HEIGHT + 50;
+    }
+
+    private boolean canMoveTo(int x, int y) {
+        Rectangle nextBounds = new Rectangle(x, y, 40, 40);
+        return rocks.stream().noneMatch(r -> nextBounds.intersects(r.getBounds()));
+    }
+
     private void spawnBandit() {
-        if (gamePaused) return;
-        
-        // Spawn from bottom (y = near SCREEN_HEIGHT)
+        if (gamePaused || isGameOver) return;
         int x = (int) (Math.random() * 700) + 50;
-        int y = SCREEN_HEIGHT - 100 + (int) (Math.random() * 50); // Bottom area
-        
+        int y = SCREEN_HEIGHT - 100;
         bandits.add(new BanditModel(x, y));
     }
-    
+
     private void shootAllBandits() {
-        if (gamePaused) return;
-        
-        for (BanditModel bandit : bandits) {
-            if (bandit.isAlive()) {
-                shootFromBandit(bandit);
-            }
+        if (gamePaused || isGameOver) return;
+        for (BanditModel b : bandits) {
+            if (b.isAlive()) shootFromBandit(b);
         }
     }
-    
+
     private void shootFromBandit(BanditModel bandit) {
-        AudioManager.playSoundEffect("enemy_shoot.wav");
-        
-        double banditCenterX = bandit.getX() + 20;
-        double banditCenterY = bandit.getY() + 20;
-        
-        double playerCenterX = player.getX() + 20;
-        double playerCenterY = player.getY() + 20;
-        
-        double dx = playerCenterX - banditCenterX;
-        double dy = playerCenterY - banditCenterY;
-        double distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance == 0) return;
-        
-        double bulletSpeed = 4.0;
-        double vx = (dx / distance) * bulletSpeed;
-        double vy = (dy / distance) * bulletSpeed;
-        
-        enemyBullets.add(new EnemyBulletModel(banditCenterX, banditCenterY, vx, vy));
-    }
-    
-    // ==================== Game End ====================
-    
-    private void endGame() {
-        stopAllTimers();
-        
-        if (gameThread != null) {
-            gameThread.stopGame();
-            gameThread = null;
-        }
-        
-        CowboyDialog.clearDialog();
-        
-        gameView.setVisible(false);
-        showGameOverDialog();
-        showMenu();
-    }
-    
-    private void showGameOverDialog() {
-        gameView.showGameOverScreen(currentStats);
-    }
-    
-    // ==================== Database Operations ====================
-    
-    private void saveHistory() {
-        String sql = "INSERT INTO history(username, score, ammo, bullets_missed) VALUES(?, ?, ?, ?)";
-        
-        try (Connection conn = Database.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            
-            if (conn == null) {
-                System.err.println("Failed to save history: Database connection is null");
-                return;
-            }
-            
-            ps.setString(1, currentStats.getUsername());
-            ps.setInt(2, currentStats.getScore());
-            ps.setInt(3, currentStats.getBulletsRemaining());
-            ps.setInt(4, currentStats.getBulletsMissed());
-            
-            ps.executeUpdate();
-            System.out.println("History saved for: " + currentStats.getUsername() + 
-                             " | Score: " + currentStats.getScore() + 
-                             " | Missed: " + currentStats.getBulletsMissed());
-            
-        } catch (Exception e) {
-            System.err.println("Error saving history:");
-            e.printStackTrace();
+        double dx = (player.getX() + 20) - (bandit.getX() + 20);
+        double dy = (player.getY() + 20) - (bandit.getY() + 20);
+        double dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 0) {
+            enemyBullets.add(new EnemyBulletModel(bandit.getX()+20, bandit.getY()+20, (dx/dist)*4, (dy/dist)*4));
+            AudioManager.playSoundEffect("enemy_shoot.wav");
         }
     }
-    
+
     public List<HistoryModel> loadHistory() {
-        List<HistoryModel> historyList = new ArrayList<>();
+        List<HistoryModel> list = new ArrayList<>();
         String sql = "SELECT username, score, ammo, bullets_missed FROM history ORDER BY score DESC LIMIT 10";
-        
         try (Connection conn = Database.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
-            
-            if (conn == null) {
-                System.err.println("Failed to load history: Database connection is null");
-                return historyList;
-            }
-            
             while (rs.next()) {
-                historyList.add(new HistoryModel(
-                    rs.getString("username"),
-                    rs.getInt("score"),
-                    rs.getInt("ammo"),
-                    rs.getInt("bullets_missed")
-                ));
+                list.add(new HistoryModel(rs.getString(1), rs.getInt(2), rs.getInt(3), rs.getInt(4)));
             }
-            
-            System.out.println("Loaded " + historyList.size() + " history records");
-            
-        } catch (Exception e) {
-            System.err.println("Error loading history:");
-            e.printStackTrace();
-        }
-        
-        return historyList;
-    }
-    
-    public PlayerStatsModel getCurrentStats() {
-        return currentStats;
-    }
-    
-    public void addPlayerStats(PlayerStatsModel stats) {
-        allPlayersStats.add(stats);
-    }
-    
-    public List<PlayerStatsModel> getAllPlayersStats() {
-        return allPlayersStats;
+        } catch (Exception e) { e.printStackTrace(); }
+        return list;
     }
 }

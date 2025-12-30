@@ -8,7 +8,6 @@ import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.List;
 import javax.swing.table.DefaultTableCellRenderer;
 
@@ -16,23 +15,23 @@ public class MenuView extends JFrame {
 
     private GamePresenter presenter;
     private BufferedImage backgroundImage;
+    private BufferedImage logoImage;
     private JTextField usernameField;
     private Font rdrFont;
     private Font rdrFontLarge;
     private JTable statsTable;
     
-    // RDR2/Western Color Palette
-    private static final Color RDR_RED = new Color(200, 40, 40);
-    private static final Color RDR_CREAM = new Color(235, 220, 195);
-    private static final Color RDR_DARK = new Color(20, 15, 10);
-    private static final Color RDR_BROWN = new Color(90, 60, 40);
-    private static final Color RDR_GOLD = new Color(210, 180, 120);
-    private static final Color RDR_PARCHMENT = new Color(230, 215, 185);
+    // RDR2 Redemption Color Palette
+    private static final Color RDR_RED = new Color(180, 30, 30);
+    private static final Color RDR_BRIGHT_RED = new Color(220, 50, 50);
+    private static final Color RDR_CREAM = new Color(240, 230, 210);
+    private static final Color RDR_DARK = new Color(15, 10, 8);
+    private static final Color RDR_BLACK = new Color(20, 15, 10);
 
     public MenuView(GamePresenter presenter) {
         this.presenter = presenter;
         
-        setTitle("HIDE AND SEEK THE CHALLENGE");
+        setTitle("HIDE AND SEEK REDEMPTION");
         setSize(1280, 720);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -40,6 +39,7 @@ public class MenuView extends JFrame {
 
         loadFonts();
         loadBackground();
+        loadLogo();
         initComponents();
     }
 
@@ -107,14 +107,40 @@ public class MenuView extends JFrame {
         }
     }
 
+    private void loadLogo() {
+        try {
+            String[] possiblePaths = {
+                "assets/sprites/logo.png",
+                "assets/logo.png",
+                "assets/sprites/hide_and_seek_logo.png",
+                "assets/hide_and_seek_logo.png",
+                "logo.png"
+            };
+
+            for (String path : possiblePaths) {
+                File file = new File(path);
+                if (file.exists()) {
+                    logoImage = ImageIO.read(file);
+                    System.out.println("Logo loaded from: " + path);
+                    return;
+                }
+            }
+
+            System.out.println("Logo image not found");
+
+        } catch (Exception e) {
+            System.err.println("Error loading logo: " + e.getMessage());
+        }
+    }
+
     private void createDefaultBackground() {
         backgroundImage = new BufferedImage(1280, 720, BufferedImage.TYPE_INT_RGB);
         Graphics2D g = backgroundImage.createGraphics();
         
-        // Western desert sunset gradient
+        // Dark red/brown gradient like RDR
         GradientPaint gradient = new GradientPaint(
-            0, 0, new Color(255, 140, 60),      // Orange sunset
-            0, 720, new Color(139, 69, 19)      // Desert brown
+            0, 0, new Color(60, 20, 15),
+            0, 720, new Color(30, 10, 8)
         );
         g.setPaint(gradient);
         g.fillRect(0, 0, 1280, 720);
@@ -135,133 +161,122 @@ public class MenuView extends JFrame {
                     g2d.drawImage(backgroundImage, 0, 0, getWidth(), getHeight(), null);
                 }
                 
-                // Vignette effect
-                GradientPaint vignette = new GradientPaint(
-                    0, 0, new Color(0, 0, 0, 0),
-                    0, getHeight(), new Color(0, 0, 0, 100)
+                // Dark vignette overlay
+                RadialGradientPaint radial = new RadialGradientPaint(
+                    getWidth() / 2f, getHeight() / 2f, getWidth() * 0.8f,
+                    new float[]{0f, 0.7f, 1f},
+                    new Color[]{
+                        new Color(0, 0, 0, 0),
+                        new Color(0, 0, 0, 100),
+                        new Color(0, 0, 0, 180)
+                    }
                 );
-                g2d.setPaint(vignette);
+                g2d.setPaint(radial);
                 g2d.fillRect(0, 0, getWidth(), getHeight());
             }
         };
         
         mainPanel.setLayout(null);
 
-        // Title with Western style
-        JLabel titleLabel = createWesternTitle();
-        titleLabel.setBounds(200, 30, 880, 100);
-        mainPanel.add(titleLabel);
+        // Logo (top left)
+        if (logoImage != null) {
+            JLabel logoLabel = new JLabel(new ImageIcon(logoImage));
+            logoLabel.setBounds(120, 30, 400, 150);
+            mainPanel.add(logoLabel);
+        } else {
+            // Title as fallback
+            JLabel titleLabel = createRedemptionTitle();
+            titleLabel.setBounds(120, 30, 400, 150);
+            mainPanel.add(titleLabel);
+        }
 
-        // Username section with Western styling
-        JPanel usernamePanel = createWesternUsernamePanel();
-        usernamePanel.setBounds(400, 150, 480, 60);
-        mainPanel.add(usernamePanel);
-
-        // Stats Table with Western wooden board style
-        JPanel tablePanel = createWesternStatsTable();
-        tablePanel.setBounds(140, 240, 1000, 300);
-        mainPanel.add(tablePanel);
-
-        // Action buttons
-        JButton playButton = createWesternButton("PLAY GAME", new Color(180, 100, 50));
-        playButton.setBounds(350, 580, 250, 70);
+        // Action buttons - Redemption style (top right)
+        JButton playButton = createRedemptionButton("START", RDR_BRIGHT_RED);
+        playButton.setBounds(480, 120, 320, 80);
         playButton.addActionListener(e -> startGame());
         mainPanel.add(playButton);
 
-        JButton quitButton = createWesternButton("QUIT", new Color(140, 60, 40));
-        quitButton.setBounds(680, 580, 250, 70);
+        JButton quitButton = createRedemptionButton("QUIT", RDR_DARK);
+        quitButton.setBounds(820, 120, 260, 80);
         quitButton.addActionListener(e -> System.exit(0));
         mainPanel.add(quitButton);
 
-        // Western decoration elements
-        addWesternDecorations(mainPanel);
+        // Stats Table with dark theme (center)
+        JPanel tablePanel = createRedemptionStatsTable();
+        tablePanel.setBounds(140, 230, 1000, 250);
+        mainPanel.add(tablePanel);
+
+        // Username section (bottom center)
+        JPanel usernamePanel = createRedemptionUsernamePanel();
+        usernamePanel.setBounds(300, 500, 680, 60);
+        mainPanel.add(usernamePanel);
 
         setContentPane(mainPanel);
     }
 
-    private JLabel createWesternTitle() {
-        JLabel title = new JLabel("HIDE & SEEK", SwingConstants.CENTER) {
+    private JLabel createRedemptionTitle() {
+        JLabel title = new JLabel("HIDE AND SEEK", SwingConstants.LEFT) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2d = (Graphics2D) g;
                 g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                 
-                String text = getText();
-                Font font = getFont();
-                FontMetrics fm = g2d.getFontMetrics(font);
-                int x = (getWidth() - fm.stringWidth(text)) / 2;
-                int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                String text = "HIDE AND SEEK";
+                String subtitle = "REDEMPTION II";
+                Font mainFont = getFont();
+                Font subFont = mainFont.deriveFont(Font.BOLD, 24f);
                 
-                // Multiple shadow layers for depth
-                g2d.setFont(font);
-                for (int i = 6; i > 0; i--) {
-                    g2d.setColor(new Color(0, 0, 0, 40 * i));
-                    g2d.drawString(text, x + i, y + i);
-                }
+                // Main title
+                g2d.setFont(mainFont);
+                int x = 10;
+                int y = 60;
                 
-                // Main text with Western red
-                g2d.setColor(new Color(220, 50, 50));
+                // Shadow
+                g2d.setColor(new Color(0, 0, 0, 200));
+                g2d.drawString(text, x + 3, y + 3);
+                
+                // Main text
+                g2d.setColor(Color.WHITE);
                 g2d.drawString(text, x, y);
                 
-                // Outline effect
-                g2d.setStroke(new BasicStroke(2));
-                g2d.setColor(new Color(139, 69, 19));
-                g2d.drawString(text, x - 1, y - 1);
+                // Subtitle
+                g2d.setFont(subFont);
+                g2d.setColor(RDR_BRIGHT_RED);
+                g2d.drawString(subtitle, x, y + 35);
             }
         };
         
-        title.setFont(rdrFontLarge);
+        title.setFont(rdrFontLarge.deriveFont(Font.BOLD, 48f));
         title.setOpaque(false);
         return title;
     }
 
-    private JPanel createWesternUsernamePanel() {
-        JPanel panel = new JPanel() {
-            @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2d = (Graphics2D) g;
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                
-                // Wooden board background
-                GradientPaint wood = new GradientPaint(
-                    0, 0, new Color(139, 90, 43),
-                    0, getHeight(), new Color(101, 67, 33)
-                );
-                g2d.setPaint(wood);
-                g2d.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
-                
-                // Border
-                g2d.setColor(new Color(70, 50, 30));
-                g2d.setStroke(new BasicStroke(3));
-                g2d.drawRoundRect(2, 2, getWidth() - 4, getHeight() - 4, 15, 15);
-            }
-        };
-        
-        panel.setLayout(new FlowLayout(FlowLayout.CENTER, 15, 15));
+    private JPanel createRedemptionUsernamePanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new FlowLayout(FlowLayout.CENTER, 20, 12));
         panel.setOpaque(false);
 
-        JLabel nameLabel = new JLabel("COWBOY NAME:");
-        nameLabel.setFont(rdrFont.deriveFont(Font.BOLD, 20f));
+        JLabel nameLabel = new JLabel("USERNAME");
+        nameLabel.setFont(rdrFont.deriveFont(Font.BOLD, 22f));
         nameLabel.setForeground(RDR_CREAM);
         panel.add(nameLabel);
 
-        usernameField = new JTextField("Player1", 15);
-        usernameField.setFont(new Font("Monospaced", Font.BOLD, 18));
-        usernameField.setBackground(new Color(245, 235, 210));
-        usernameField.setForeground(RDR_DARK);
-        usernameField.setCaretColor(RDR_DARK);
+        usernameField = new JTextField("Player1", 20);
+        usernameField.setFont(new Font("SansSerif", Font.BOLD, 20));
+        usernameField.setBackground(RDR_RED);
+        usernameField.setForeground(Color.WHITE);
+        usernameField.setCaretColor(Color.WHITE);
         usernameField.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(70, 50, 30), 3),
-            BorderFactory.createEmptyBorder(8, 12, 8, 12)
+            BorderFactory.createLineBorder(RDR_BLACK, 3),
+            BorderFactory.createEmptyBorder(10, 15, 10, 15)
         ));
         panel.add(usernameField);
 
         return panel;
     }
 
-    private JPanel createWesternStatsTable() {
+    private JPanel createRedemptionStatsTable() {
         JPanel containerPanel = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -269,76 +284,45 @@ public class MenuView extends JFrame {
                 Graphics2D g2d = (Graphics2D) g;
                 g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 
-                // Wooden board background
-                GradientPaint wood = new GradientPaint(
-                    0, 0, new Color(160, 110, 60),
-                    0, getHeight(), new Color(120, 80, 40)
-                );
-                g2d.setPaint(wood);
-                g2d.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+                // Dark background with slight transparency
+                g2d.setColor(new Color(0, 0, 0, 220));
+                g2d.fillRect(0, 0, getWidth(), getHeight());
                 
-                // Wood grain effect
-                g2d.setColor(new Color(0, 0, 0, 20));
-                for (int i = 0; i < getHeight(); i += 10) {
-                    g2d.fillRect(0, i, getWidth(), 2);
-                }
-                
-                // Border nails effect
-                g2d.setColor(new Color(80, 60, 40));
-                int[] nailX = {20, getWidth() - 20, 20, getWidth() - 20};
-                int[] nailY = {20, 20, getHeight() - 20, getHeight() - 20};
-                for (int i = 0; i < 4; i++) {
-                    g2d.fillOval(nailX[i] - 8, nailY[i] - 8, 16, 16);
-                    g2d.setColor(new Color(60, 40, 20));
-                    g2d.fillOval(nailX[i] - 5, nailY[i] - 5, 10, 10);
-                    g2d.setColor(new Color(80, 60, 40));
-                }
-                
-                // Border
-                g2d.setColor(new Color(70, 50, 30));
-                g2d.setStroke(new BasicStroke(4));
-                g2d.drawRoundRect(3, 3, getWidth() - 6, getHeight() - 6, 20, 20);
+                // Red border
+                g2d.setColor(RDR_RED);
+                g2d.setStroke(new BasicStroke(6));
+                g2d.drawRect(0, 0, getWidth(), getHeight());
             }
         };
         
-        containerPanel.setLayout(new BorderLayout(10, 10));
+        containerPanel.setLayout(new BorderLayout(0, 0));
         containerPanel.setOpaque(false);
-        containerPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
-
-        // Table title
-        JLabel tableTitle = new JLabel("⭐ GUNSLINGER RECORDS ⭐", SwingConstants.CENTER);
-        tableTitle.setFont(rdrFont.deriveFont(Font.BOLD, 24f));
-        tableTitle.setForeground(RDR_CREAM);
-        containerPanel.add(tableTitle, BorderLayout.NORTH);
+        containerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         // Load data from database dynamically
         List<model.HistoryModel> historyList = presenter.loadHistory();
         
-        String[] columnNames = {"Username", "Skor", "Peluru Meleset", "Sisa Peluru"};
+        String[] columnNames = {"USERNAME", "SCORE", "MISSED SHOT", "AMMO LEFT"};
         Object[][] data;
         
         if (historyList.isEmpty()) {
-            // Show empty state
             data = new Object[][] {
-                {"---", "---", "---", "---"},
                 {"---", "---", "---", "---"},
                 {"---", "---", "---", "---"}
             };
         } else {
-            // Fill with database data (top 3)
-            int rows = Math.min(3, historyList.size());
-            data = new Object[3][4]; // Always 3 rows
+            int rows = Math.min(2, historyList.size());
+            data = new Object[2][4];
             
             for (int i = 0; i < rows; i++) {
                 model.HistoryModel h = historyList.get(i);
-                data[i][0] = h.getUsername();
+                data[i][0] = h.getUsername().toUpperCase();
                 data[i][1] = String.valueOf(h.getScore());
                 data[i][2] = String.valueOf(h.getBulletsMissed());
                 data[i][3] = String.valueOf(h.getAmmo());
             }
             
-            // Fill remaining rows with empty
-            for (int i = rows; i < 3; i++) {
+            for (int i = rows; i < 2; i++) {
                 data[i][0] = "---";
                 data[i][1] = "---";
                 data[i][2] = "---";
@@ -353,27 +337,30 @@ public class MenuView extends JFrame {
             }
         };
         
-        // Table styling
-        statsTable.setFont(new Font("Monospaced", Font.PLAIN, 16));
-        statsTable.setRowHeight(50);
-        statsTable.setGridColor(new Color(70, 50, 30));
+        // Table styling - Redemption black and red
+        statsTable.setFont(new Font("SansSerif", Font.BOLD, 20));
+        statsTable.setRowHeight(70);
+        statsTable.setGridColor(RDR_BLACK);
         statsTable.setShowGrid(true);
-        statsTable.setBackground(new Color(230, 215, 185));
-        statsTable.setForeground(RDR_DARK);
-        statsTable.setSelectionBackground(new Color(180, 140, 100));
-        statsTable.setSelectionForeground(RDR_DARK);
+        statsTable.setBackground(RDR_RED);
+        statsTable.setForeground(Color.WHITE);
+        statsTable.setSelectionBackground(RDR_BRIGHT_RED);
+        statsTable.setSelectionForeground(Color.WHITE);
+        statsTable.setIntercellSpacing(new Dimension(2, 2));
         
-        // Header styling
-        statsTable.getTableHeader().setFont(new Font("Serif", Font.BOLD, 18));
-        statsTable.getTableHeader().setBackground(new Color(139, 90, 43));
+        // Header styling - Black with white text
+        statsTable.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 18));
+        statsTable.getTableHeader().setBackground(RDR_BLACK);
         statsTable.getTableHeader().setForeground(RDR_CREAM);
-        statsTable.getTableHeader().setBorder(BorderFactory.createLineBorder(new Color(70, 50, 30), 2));
+        statsTable.getTableHeader().setBorder(BorderFactory.createMatteBorder(0, 0, 3, 0, RDR_RED));
         statsTable.getTableHeader().setReorderingAllowed(false);
-        statsTable.getTableHeader().setPreferredSize(new Dimension(0, 45));
+        statsTable.getTableHeader().setPreferredSize(new Dimension(0, 50));
         
         // Center align cells
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(JLabel.CENTER);
+        centerRenderer.setBackground(RDR_RED);
+        centerRenderer.setForeground(Color.WHITE);
         for (int i = 0; i < statsTable.getColumnCount(); i++) {
             statsTable.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
         }
@@ -381,13 +368,13 @@ public class MenuView extends JFrame {
         JScrollPane scrollPane = new JScrollPane(statsTable);
         scrollPane.setOpaque(false);
         scrollPane.getViewport().setOpaque(false);
-        scrollPane.setBorder(BorderFactory.createLineBorder(new Color(70, 50, 30), 2));
+        scrollPane.setBorder(null);
         containerPanel.add(scrollPane, BorderLayout.CENTER);
 
         return containerPanel;
     }
 
-    private JButton createWesternButton(String text, Color baseColor) {
+    private JButton createRedemptionButton(String text, Color baseColor) {
         JButton button = new JButton(text) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -396,28 +383,19 @@ public class MenuView extends JFrame {
 
                 Color color = baseColor;
                 if (getModel().isPressed()) {
-                    color = baseColor.darker().darker();
+                    color = baseColor.darker();
                 } else if (getModel().isRollover()) {
                     color = baseColor.brighter();
                 }
 
-                // Button background with wood texture
-                GradientPaint gradient = new GradientPaint(
-                    0, 0, color,
-                    0, getHeight(), color.darker()
-                );
-                g2d.setPaint(gradient);
-                g2d.fillRoundRect(0, 0, getWidth(), getHeight(), 20, 20);
+                // Simple rectangular button
+                g2d.setColor(color);
+                g2d.fillRect(0, 0, getWidth(), getHeight());
 
-                // Border
-                g2d.setColor(color.darker().darker());
-                g2d.setStroke(new BasicStroke(4));
-                g2d.drawRoundRect(2, 2, getWidth() - 4, getHeight() - 4, 20, 20);
-
-                // Inner highlight
-                g2d.setColor(new Color(255, 255, 255, 60));
-                g2d.setStroke(new BasicStroke(2));
-                g2d.drawRoundRect(6, 6, getWidth() - 12, getHeight() - 12, 15, 15);
+                // Black border
+                g2d.setColor(RDR_BLACK);
+                g2d.setStroke(new BasicStroke(5));
+                g2d.drawRect(0, 0, getWidth(), getHeight());
 
                 // Text
                 g2d.setFont(getFont());
@@ -426,16 +404,16 @@ public class MenuView extends JFrame {
                 int textY = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
                 
                 // Text shadow
-                g2d.setColor(new Color(0, 0, 0, 180));
-                g2d.drawString(getText(), textX + 3, textY + 3);
+                g2d.setColor(new Color(0, 0, 0, 200));
+                g2d.drawString(getText(), textX + 2, textY + 2);
                 
                 // Main text
-                g2d.setColor(RDR_CREAM);
+                g2d.setColor(Color.WHITE);
                 g2d.drawString(getText(), textX, textY);
             }
         };
 
-        button.setFont(rdrFont.deriveFont(Font.BOLD, 24f));
+        button.setFont(rdrFont.deriveFont(Font.BOLD, 36f));
         button.setFocusPainted(false);
         button.setBorderPainted(false);
         button.setContentAreaFilled(false);
@@ -444,33 +422,11 @@ public class MenuView extends JFrame {
         return button;
     }
 
-    private void addWesternDecorations(JPanel panel) {
-        // Rope decoration (top)
-        JLabel ropeTop = new JLabel("～～～～～～～～～～～～～～～～～～～～", SwingConstants.CENTER);
-        ropeTop.setFont(new Font("SansSerif", Font.BOLD, 24));
-        ropeTop.setForeground(new Color(139, 90, 43));
-        ropeTop.setBounds(0, 10, 1280, 30);
-        panel.add(ropeTop);
-
-        // Star decorations
-        JLabel star1 = new JLabel("★");
-        star1.setFont(new Font("Serif", Font.BOLD, 48));
-        star1.setForeground(RDR_GOLD);
-        star1.setBounds(50, 50, 60, 60);
-        panel.add(star1);
-
-        JLabel star2 = new JLabel("★");
-        star2.setFont(new Font("Serif", Font.BOLD, 48));
-        star2.setForeground(RDR_GOLD);
-        star2.setBounds(1170, 50, 60, 60);
-        panel.add(star2);
-    }
-
     private void startGame() {
         String username = usernameField.getText().trim();
         if (username.isEmpty()) {
             JOptionPane.showMessageDialog(this, 
-                "Please enter your cowboy name!", 
+                "Please enter your username!", 
                 "Name Required", 
                 JOptionPane.WARNING_MESSAGE);
             return;
@@ -498,28 +454,27 @@ public class MenuView extends JFrame {
     public void updateStatsTable() {
         List<model.HistoryModel> historyList = presenter.loadHistory();
         
-        String[] columnNames = {"Username", "Skor", "Peluru Meleset", "Sisa Peluru"};
+        String[] columnNames = {"USERNAME", "SCORE", "MISSED SHOT", "AMMO LEFT"};
         Object[][] data;
         
         if (historyList.isEmpty()) {
             data = new Object[][] {
                 {"---", "---", "---", "---"},
-                {"---", "---", "---", "---"},
                 {"---", "---", "---", "---"}
             };
         } else {
-            int rows = Math.min(3, historyList.size());
-            data = new Object[3][4];
+            int rows = Math.min(2, historyList.size());
+            data = new Object[2][4];
             
             for (int i = 0; i < rows; i++) {
                 model.HistoryModel h = historyList.get(i);
-                data[i][0] = h.getUsername();
+                data[i][0] = h.getUsername().toUpperCase();
                 data[i][1] = String.valueOf(h.getScore());
                 data[i][2] = String.valueOf(h.getBulletsMissed());
                 data[i][3] = String.valueOf(h.getAmmo());
             }
             
-            for (int i = rows; i < 3; i++) {
+            for (int i = rows; i < 2; i++) {
                 data[i][0] = "---";
                 data[i][1] = "---";
                 data[i][2] = "---";
@@ -535,14 +490,16 @@ public class MenuView extends JFrame {
         });
         
         // Reapply styling
-        statsTable.setFont(new Font("Monospaced", Font.PLAIN, 16));
-        statsTable.setRowHeight(50);
-        statsTable.getTableHeader().setFont(new Font("Serif", Font.BOLD, 18));
-        statsTable.getTableHeader().setBackground(new Color(139, 90, 43));
+        statsTable.setFont(new Font("SansSerif", Font.BOLD, 20));
+        statsTable.setRowHeight(70);
+        statsTable.getTableHeader().setFont(new Font("SansSerif", Font.BOLD, 18));
+        statsTable.getTableHeader().setBackground(RDR_BLACK);
         statsTable.getTableHeader().setForeground(RDR_CREAM);
         
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(JLabel.CENTER);
+        centerRenderer.setBackground(RDR_RED);
+        centerRenderer.setForeground(Color.WHITE);
         for (int i = 0; i < statsTable.getColumnCount(); i++) {
             statsTable.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
         }
