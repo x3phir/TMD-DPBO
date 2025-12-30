@@ -29,6 +29,7 @@ public class GamePresenter {
     private static final int PLAYER_DAMAGE = 10;
     private static final int BANDIT_KILL_SCORE = 100;
     private static final int AMMO_REWARD_ON_MISS = 1;
+    private static final int MIN_ROCK_DISTANCE_FROM_PLAYER = 150; // Jarak minimum batu dari player
     
     // Game Objects
     private PlayerModel player;
@@ -57,46 +58,27 @@ public class GamePresenter {
 
     // ==================== Missing Methods for View Compatibility ====================
 
-    /**
-     * Mengecek apakah game sedang dalam kondisi pause.
-     * Dibutuhkan oleh GameView dan GamePanel untuk render overlay "PAUSED".
-     */
     public boolean isGamePaused() {
         return gamePaused;
     }
 
-    /**
-     * Mengambil statistik pemain saat ini.
-     * Dibutuhkan oleh GamePanel untuk menampilkan jumlah tembakan meleset (MISSED).
-     */
     public PlayerStatsModel getCurrentStats() {
         return currentStats;
     }
 
-    /**
-     * Menambahkan statistik pemain ke list riwayat sesi ini.
-     * Dibutuhkan oleh MenuView.
-     */
     public void addPlayerStats(PlayerStatsModel stats) {
         if (stats != null) {
             allPlayersStats.add(stats);
         }
     }
 
-    /**
-     * Mengembalikan list semua statistik pemain dalam sesi ini.
-     */
     public List<PlayerStatsModel> getAllPlayersStats() {
         return allPlayersStats;
     }
 
-    /**
-     * Aksi untuk kembali ke menu dari tengah permainan.
-     * Dibutuhkan oleh GameView (Key Listener).
-     */
     public void returnToMenu() {
         if (!isGameOver && currentStats != null) {
-            saveHistory(); // Simpan progres sebelum keluar
+            saveHistory();
         }
         showMenu();
     }
@@ -113,11 +95,10 @@ public class GamePresenter {
     public void startGame(String username) {
         String finalName = (username == null || username.trim().isEmpty()) ? "Player1" : username;
         
-        resetGameState(); // Bersihkan data lama
+        resetGameState();
         initializeGame(finalName);
         setupGameView();
         
-        // Mulai sistem game
         gameThread = new GameThread(this);
         gameThread.start();
         startTimers();
@@ -155,7 +136,6 @@ public class GamePresenter {
     // ==================== Game Logic ====================
     
     public void updateGame() {
-        // Kunci utama: Jika pause atau sudah game over, berhenti total.
         if (gamePaused || isGameOver) return;
         
         updateBullets();
@@ -169,13 +149,11 @@ public class GamePresenter {
     
     private void checkGameOver() {
         if (player.getHp() <= 0 && !isGameOver) {
-            isGameOver = true; // Langsung kunci agar tidak masuk ke sini lagi
+            isGameOver = true;
             
-            // Simpan status terakhir
             currentStats.setBulletsRemaining(player.getAmmo());
             currentStats.setScore(player.getScore());
 
-            // Jalankan proses penyelesaian di thread UI agar tidak bentrok
             SwingUtilities.invokeLater(() -> {
                 saveHistory(); 
                 endGame();
@@ -189,10 +167,7 @@ public class GamePresenter {
             gameThread.stopGame();
         }
         
-        // Tampilkan popup skor
         gameView.showGameOverScreen(currentStats);
-        
-        // Kembali ke menu setelah dialog ditutup
         showMenu();
     }
 
@@ -226,14 +201,73 @@ public class GamePresenter {
         enemyBullets.clear();
         rocks.clear();
         
-        player = new PlayerModel(380, 260, username);
+        // Posisi spawn player di tengah
+        int playerSpawnX = 380;
+        int playerSpawnY = 260;
+        
+        player = new PlayerModel(playerSpawnX, playerSpawnY, username);
         currentStats = new PlayerStatsModel(username);
         
-        // Posisi batu
-        for (int i = 0; i < 3; i++) {
-            int x = 150 + (i * 250) + (int)(Math.random() * 50 - 25);
-            int y = 200 + (int)(Math.random() * 200);
-            rocks.add(new RockModel(x, y, 64, 64));
+        // Generate batu dengan pengecekan jarak dari player
+        int rocksGenerated = 0;
+        int maxAttempts = 50; // Maksimal percobaan untuk menghindari infinite loop
+        
+        while (rocksGenerated < 3) {
+            int attempts = 0;
+            boolean validPosition = false;
+            int rockX = 0, rockY = 0;
+            
+            while (!validPosition && attempts < maxAttempts) {
+                // Generate posisi random
+                rockX = 100 + (int)(Math.random() * 600); // Range X: 100-700
+                rockY = 150 + (int)(Math.random() * 350); // Range Y: 150-500
+                
+                // Hitung jarak dari player spawn
+                double distance = Math.sqrt(
+                    Math.pow(rockX - playerSpawnX, 2) + 
+                    Math.pow(rockY - playerSpawnY, 2)
+                );
+                
+                // Cek apakah jarak cukup jauh dari player
+                if (distance >= MIN_ROCK_DISTANCE_FROM_PLAYER) {
+                    // Cek jarak dari batu lain yang sudah ada (minimal 100 pixel)
+                    boolean tooCloseToOtherRocks = false;
+                    for (RockModel existingRock : rocks) {
+                        double distToRock = Math.sqrt(
+                            Math.pow(rockX - existingRock.getX(), 2) + 
+                            Math.pow(rockY - existingRock.getY(), 2)
+                        );
+                        if (distToRock < 100) {
+                            tooCloseToOtherRocks = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!tooCloseToOtherRocks) {
+                        validPosition = true;
+                    }
+                }
+                
+                attempts++;
+            }
+            
+            // Jika valid, tambahkan batu
+            if (validPosition) {
+                rocks.add(new RockModel(rockX, rockY, 64, 64));
+                rocksGenerated++;
+                System.out.println("Rock " + rocksGenerated + " spawned at (" + rockX + ", " + rockY + ")");
+            } else {
+                // Fallback: spawn di pojok yang aman
+                if (rocksGenerated == 0) {
+                    rocks.add(new RockModel(100, 450, 64, 64));
+                } else if (rocksGenerated == 1) {
+                    rocks.add(new RockModel(650, 450, 64, 64));
+                } else {
+                    rocks.add(new RockModel(650, 100, 64, 64));
+                }
+                rocksGenerated++;
+                System.out.println("Rock " + rocksGenerated + " spawned at fallback position");
+            }
         }
     }
 
@@ -258,8 +292,6 @@ public class GamePresenter {
         if (banditShootTimer != null) banditShootTimer.stop();
     }
 
-    // ... (Metode updateBullets, updateEnemyBullets, movePlayer, shoot tetap sama namun tambahkan pengecekan isGameOver)
-
     public void movePlayer(int dx, int dy) {
         if (gamePaused || isGameOver) return;
         
@@ -278,7 +310,6 @@ public class GamePresenter {
         AudioManager.playSoundEffect("shoot.wav");
         currentStats.incrementBulletsFired();
         
-        // Logika perhitungan peluru (tetap sama)
         double dx = mouseX - (player.getX() + 20);
         double dy = mouseY - (player.getY() + 20);
         double distance = Math.sqrt(dx * dx + dy * dy);
@@ -294,7 +325,6 @@ public class GamePresenter {
 
     private void updateBullets() {
         bullets.forEach(BulletModel::update);
-        // Cek collision batu & offscreen
         bullets.removeIf(bullet -> {
             boolean hitRock = rocks.stream().anyMatch(r -> bullet.getBounds().intersects(r.getBounds()));
             boolean offScreen = isOffScreen(bullet.getX(), bullet.getY());
