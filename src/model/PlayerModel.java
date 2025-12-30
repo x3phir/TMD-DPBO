@@ -24,7 +24,7 @@ public class PlayerModel {
         this.maxAmmo = 50;
         this.maxHealth = 100;
         this.healthPoint = 100;
-        this.ammo = 20;
+        this.ammo = 0;
         this.score = 0;
     }
 

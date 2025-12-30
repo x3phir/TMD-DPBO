@@ -5,7 +5,7 @@ import java.awt.Rectangle;
 public class BanditModel {
 
     private double x, y;
-    private double speed = 1.5;
+    private double speed = 0.5;
     private int size = 40;
     private boolean alive = true;
 

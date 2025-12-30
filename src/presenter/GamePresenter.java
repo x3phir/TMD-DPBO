@@ -16,7 +16,10 @@ import model.BulletModel;
 import model.EnemyBulletModel;
 import model.HistoryModel;
 import model.PlayerModel;
+import model.PlayerStatsModel;
 import model.RockModel;
+import util.AudioManager;
+import util.CowboyDialog;
 import util.GameThread;
 import view.GamePanel;
 import view.GameView;
@@ -25,8 +28,8 @@ import view.MenuView;
 public class GamePresenter {
     
     // Constants
-    private static final int BANDIT_SPAWN_INTERVAL = 3000; // 3 seconds
-    private static final int BANDIT_SHOOT_INTERVAL = 1500; // 1.5 seconds
+    private static final int BANDIT_SPAWN_INTERVAL = 3000;
+    private static final int BANDIT_SHOOT_INTERVAL = 1500;
     private static final int SCREEN_WIDTH = 800;
     private static final int SCREEN_HEIGHT = 600;
     private static final int PLAYER_DAMAGE = 10;
@@ -40,6 +43,10 @@ public class GamePresenter {
     private final List<EnemyBulletModel> enemyBullets;
     private final List<RockModel> rocks;
     
+    // Stats tracking
+    private PlayerStatsModel currentStats;
+    private List<PlayerStatsModel> allPlayersStats;
+    
     // Views
     private final MenuView menuView;
     private final GameView gameView;
@@ -48,12 +55,14 @@ public class GamePresenter {
     private GameThread gameThread;
     private Timer banditSpawnTimer;
     private Timer banditShootTimer;
+    private boolean gamePaused = false;
     
     public GamePresenter() {
         this.bandits = new ArrayList<>();
         this.bullets = new ArrayList<>();
         this.enemyBullets = new ArrayList<>();
         this.rocks = new ArrayList<>();
+        this.allPlayersStats = new ArrayList<>();
         
         this.menuView = new MenuView(this);
         this.gameView = new GameView(this);
@@ -63,6 +72,11 @@ public class GamePresenter {
     
     public void showMenu() {
         stopAllTimers();
+        gamePaused = false;
+        
+        CowboyDialog.clearDialog();
+        AudioManager.playMusic("menu_music.wav");
+        
         menuView.setVisible(true);
         gameView.setVisible(false);
     }
@@ -71,34 +85,69 @@ public class GamePresenter {
         if (username == null || username.trim().isEmpty()) {
             username = "Player1";
         }
+        
+        gamePaused = false;
+        CowboyDialog.clearDialog();
+        AudioManager.playMusic("game_music.wav");
+        
         initializeGame(username);
         setupGameView();
         startGameLoop();
         startTimers();
     }
     
+    public void togglePause() {
+        gamePaused = !gamePaused;
+        
+        if (gamePaused) {
+            // Pause game
+            if (banditSpawnTimer != null) banditSpawnTimer.stop();
+            if (banditShootTimer != null) banditShootTimer.stop();
+            AudioManager.stopMusic();
+        } else {
+            // Resume game
+            if (banditSpawnTimer != null) banditSpawnTimer.start();
+            if (banditShootTimer != null) banditShootTimer.start();
+            AudioManager.playMusic("game_music.wav");
+        }
+        
+        gameView.refresh();
+    }
+    
+    public boolean isGamePaused() {
+        return gamePaused;
+    }
+    
+    public void returnToMenu() {
+        if (currentStats != null) {
+            saveHistory();
+        }
+        showMenu();
+    }
+    
     // ==================== Game Initialization ====================
     
     private void initializeGame(String username) {
-        // Clear previous game state
         bandits.clear();
         bullets.clear();
         enemyBullets.clear();
         rocks.clear();
         
-        // Initialize player
         player = new PlayerModel(380, 260, username);
+        currentStats = new PlayerStatsModel(username);
         
-        // Initialize rocks
         initializeRocks();
         
-        System.out.println("Game initialized for: " + username + " with " + rocks.size() + " rocks");
+        System.out.println("Game initialized for: " + username);
     }
     
     private void initializeRocks() {
-        rocks.add(new RockModel(200, 150, 64, 64));
-        rocks.add(new RockModel(400, 300, 64, 64));
-        rocks.add(new RockModel(600, 200, 64, 64));
+        // Generate random rock positions
+        for (int i = 0; i < 3; i++) {
+            int x = 150 + (i * 250) + (int)(Math.random() * 50 - 25);
+            int y = 200 + (int)(Math.random() * 200);
+            rocks.add(new RockModel(x, y, 64, 64));
+        }
     }
     
     private void setupGameView() {
@@ -120,6 +169,8 @@ public class GamePresenter {
     }
     
     public void updateGame() {
+        if (gamePaused) return;
+        
         updateBullets();
         updateEnemyBullets();
         updateBandits();
@@ -132,8 +183,21 @@ public class GamePresenter {
         for (BulletModel bullet : bullets) {
             bullet.update();
             
+            // Check collision with rocks
+            boolean hitRock = false;
+            for (RockModel rock : rocks) {
+                if (bullet.getBounds().intersects(rock.getBounds())) {
+                    bullet.deactivate();
+                    hitRock = true;
+                    break;
+                }
+            }
+            
             // Deactivate bullets that go off-screen
             if (isOffScreen(bullet.getX(), bullet.getY())) {
+                if (!hitRock) {
+                    currentStats.incrementBulletsMissed();
+                }
                 bullet.deactivate();
             }
         }
@@ -144,8 +208,16 @@ public class GamePresenter {
         for (EnemyBulletModel enemyBullet : enemyBullets) {
             enemyBullet.update();
             
+            // Check collision with rocks
+            for (RockModel rock : rocks) {
+                if (enemyBullet.getBounds().intersects(rock.getBounds())) {
+                    enemyBullet.deactivate();
+                    break;
+                }
+            }
+            
             // Check player hit
-            if (enemyBullet.getBounds().intersects(player.getBounds())) {
+            if (enemyBullet.isActive() && enemyBullet.getBounds().intersects(player.getBounds())) {
                 player.takeDamage(PLAYER_DAMAGE);
                 enemyBullet.deactivate();
                 continue;
@@ -169,7 +241,6 @@ public class GamePresenter {
     }
     
     private void checkCollisions() {
-        // Bullet hits bandit
         for (BulletModel bullet : bullets) {
             if (!bullet.isActive()) continue;
             
@@ -180,30 +251,37 @@ public class GamePresenter {
                     bandit.kill();
                     bullet.deactivate();
                     player.addScore(BANDIT_KILL_SCORE);
+                    currentStats.setScore(player.getScore());
+                    
+                    AudioManager.playSoundEffect("bandit_death.wav");
+                    CowboyDialog.triggerDialogForced();
+                    
                     break;
                 }
             }
         }
         
-        // Remove dead bandits and inactive bullets
         bandits.removeIf(b -> !b.isAlive());
         bullets.removeIf(b -> !b.isActive());
     }
     
     private void checkGameOver() {
         if (player.getHp() <= 0) {
+            currentStats.setBulletsRemaining(player.getAmmo());
             saveHistory();
             endGame();
         }
     }
     
     private boolean isOffScreen(int x, int y) {
-        return x < 0 || x > SCREEN_WIDTH || y < 0 || y > SCREEN_HEIGHT;
+        return x < -50 || x > SCREEN_WIDTH + 50 || y < -50 || y > SCREEN_HEIGHT + 50;
     }
     
     // ==================== Player Actions ====================
     
     public void movePlayer(int dx, int dy) {
+        if (gamePaused) return;
+        
         int nextX = player.getX() + dx;
         int nextY = player.getY() + dy;
         
@@ -225,10 +303,17 @@ public class GamePresenter {
     }
     
     public void shoot(int mouseX, int mouseY) {
+        if (gamePaused) return;
+        
         if (player.getAmmo() <= 0) {
             System.out.println("Out of ammo!");
             return;
         }
+        
+        AudioManager.playSoundEffect("shoot.wav");
+        CowboyDialog.triggerDialog();
+        
+        currentStats.incrementBulletsFired();
         
         int playerCenterX = player.getX() + 20;
         int playerCenterY = player.getY() + 20;
@@ -245,6 +330,7 @@ public class GamePresenter {
         
         bullets.add(new BulletModel(playerCenterX, playerCenterY, vx, vy));
         player.useAmmo();
+        currentStats.setBulletsRemaining(player.getAmmo());
         
         gameView.refresh();
     }
@@ -252,11 +338,9 @@ public class GamePresenter {
     // ==================== Enemy Actions ====================
     
     private void startTimers() {
-        // Bandit spawn timer
         banditSpawnTimer = new Timer(BANDIT_SPAWN_INTERVAL, e -> spawnBandit());
         banditSpawnTimer.start();
         
-        // Bandit shoot timer
         banditShootTimer = new Timer(BANDIT_SHOOT_INTERVAL, e -> shootAllBandits());
         banditShootTimer.start();
     }
@@ -273,13 +357,18 @@ public class GamePresenter {
     }
     
     private void spawnBandit() {
+        if (gamePaused) return;
+        
+        // Spawn from bottom (y = near SCREEN_HEIGHT)
         int x = (int) (Math.random() * 700) + 50;
-        int y = (int) (Math.random() * 100) + 50;
+        int y = SCREEN_HEIGHT - 100 + (int) (Math.random() * 50); // Bottom area
         
         bandits.add(new BanditModel(x, y));
     }
     
     private void shootAllBandits() {
+        if (gamePaused) return;
+        
         for (BanditModel bandit : bandits) {
             if (bandit.isAlive()) {
                 shootFromBandit(bandit);
@@ -288,6 +377,8 @@ public class GamePresenter {
     }
     
     private void shootFromBandit(BanditModel bandit) {
+        AudioManager.playSoundEffect("enemy_shoot.wav");
+        
         double banditCenterX = bandit.getX() + 20;
         double banditCenterY = bandit.getY() + 20;
         
@@ -317,31 +408,21 @@ public class GamePresenter {
             gameThread = null;
         }
         
+        CowboyDialog.clearDialog();
+        
         gameView.setVisible(false);
         showGameOverDialog();
         showMenu();
     }
     
     private void showGameOverDialog() {
-        String message = String.format(
-            "Game Over, %s!\n\nFinal Score: %d\nAmmo Left: %d",
-            player.getUsername(),
-            player.getScore(),
-            player.getAmmo()
-        );
-        
-        javax.swing.JOptionPane.showMessageDialog(
-            menuView,
-            message,
-            "Game Over",
-            javax.swing.JOptionPane.INFORMATION_MESSAGE
-        );
+        gameView.showGameOverScreen(currentStats);
     }
     
     // ==================== Database Operations ====================
     
     private void saveHistory() {
-        String sql = "INSERT INTO history(username, score, ammo) VALUES(?, ?, ?)";
+        String sql = "INSERT INTO history(username, score, ammo, bullets_missed) VALUES(?, ?, ?, ?)";
         
         try (Connection conn = Database.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -351,12 +432,15 @@ public class GamePresenter {
                 return;
             }
             
-            ps.setString(1, player.getUsername());
-            ps.setInt(2, player.getScore());
-            ps.setInt(3, player.getAmmo());
+            ps.setString(1, currentStats.getUsername());
+            ps.setInt(2, currentStats.getScore());
+            ps.setInt(3, currentStats.getBulletsRemaining());
+            ps.setInt(4, currentStats.getBulletsMissed());
             
             ps.executeUpdate();
-            System.out.println("History saved for: " + player.getUsername() + " with score: " + player.getScore());
+            System.out.println("History saved for: " + currentStats.getUsername() + 
+                             " | Score: " + currentStats.getScore() + 
+                             " | Missed: " + currentStats.getBulletsMissed());
             
         } catch (Exception e) {
             System.err.println("Error saving history:");
@@ -366,7 +450,7 @@ public class GamePresenter {
     
     public List<HistoryModel> loadHistory() {
         List<HistoryModel> historyList = new ArrayList<>();
-        String sql = "SELECT username, score, ammo FROM history ORDER BY score DESC LIMIT 10";
+        String sql = "SELECT username, score, ammo, bullets_missed FROM history ORDER BY score DESC LIMIT 10";
         
         try (Connection conn = Database.getConnection();
              Statement stmt = conn.createStatement();
@@ -381,7 +465,8 @@ public class GamePresenter {
                 historyList.add(new HistoryModel(
                     rs.getString("username"),
                     rs.getInt("score"),
-                    rs.getInt("ammo")
+                    rs.getInt("ammo"),
+                    rs.getInt("bullets_missed")
                 ));
             }
             
@@ -393,5 +478,17 @@ public class GamePresenter {
         }
         
         return historyList;
+    }
+    
+    public PlayerStatsModel getCurrentStats() {
+        return currentStats;
+    }
+    
+    public void addPlayerStats(PlayerStatsModel stats) {
+        allPlayersStats.add(stats);
+    }
+    
+    public List<PlayerStatsModel> getAllPlayersStats() {
+        return allPlayersStats;
     }
 }

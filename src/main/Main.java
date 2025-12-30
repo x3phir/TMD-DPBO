@@ -3,6 +3,7 @@ package main;
 import database.Database;
 import presenter.GamePresenter;
 import util.AssetManager;
+import util.AudioManager;
 
 public class Main {
 
@@ -13,6 +14,9 @@ public class Main {
         
         // Print asset diagnostics
         AssetManager.printAssetDiagnostics();
+        
+        // Print audio diagnostics
+        AudioManager.printAudioDiagnostics();
         
         // Initialize database
         System.out.println("Initializing database...");
@@ -29,5 +33,11 @@ public class Main {
         System.out.println("Starting game...\n");
         GamePresenter presenter = new GamePresenter();
         presenter.showMenu();
+        
+        // Add shutdown hook to cleanup audio
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Cleaning up audio resources...");
+            AudioManager.cleanup();
+        }));
     }
 }

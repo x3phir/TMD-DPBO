@@ -65,16 +65,18 @@ public class Database {
     /**
      * Creates all necessary database tables
      */
+   
     private static void createTables(Connection conn) throws SQLException {
         try (Statement stmt = conn.createStatement()) {
             
-            // Create history table
+            // Create history table with bullets_missed column
             String createHistoryTable = """
                 CREATE TABLE IF NOT EXISTS history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT NOT NULL,
                     score INTEGER NOT NULL DEFAULT 0,
                     ammo INTEGER NOT NULL DEFAULT 0,
+                    bullets_missed INTEGER NOT NULL DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """;
