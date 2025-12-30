@@ -8,13 +8,8 @@ import util.AudioManager;
 public class Main {
 
     public static void main(String[] args) {
-        System.out.println("=================================");
-        System.out.println("  Hide and Seek Cowboy - v1.0");
-        System.out.println("=================================\n");
-        
         // Print asset diagnostics
         AssetManager.printAssetDiagnostics();
-        
         // Print audio diagnostics
         AudioManager.printAudioDiagnostics();
         

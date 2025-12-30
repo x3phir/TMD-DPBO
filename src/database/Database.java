@@ -5,33 +5,36 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+/**
+ * Database - Kelas untuk mengelola koneksi dan inisialisasi database SQLite
+ * Menyimpan history permainan pemain
+ */
 public class Database {
     
+    // URL koneksi database SQLite
     private static final String DATABASE_URL = "jdbc:sqlite:game.db";
     private static final String JDBC_DRIVER = "org.sqlite.JDBC";
     
     /**
-     * Gets a connection to the SQLite database
-     * @return Connection object or null if connection fails
+     * Mendapatkan koneksi ke database SQLite
+     * @return Connection object atau null jika gagal
      */
     public static Connection getConnection() {
         try {
-            // Load SQLite JDBC driver
+            // Load driver JDBC SQLite
             Class.forName(JDBC_DRIVER);
             
             Connection conn = DriverManager.getConnection(DATABASE_URL);
             
             if (conn != null) {
-                System.out.println("Connected to database: " + DATABASE_URL);
+                System.out.println("Connected to: " + DATABASE_URL);
             }
             
             return conn;
             
         } catch (ClassNotFoundException e) {
             System.err.println("ERROR: SQLite JDBC driver not found!");
-            System.err.println("Please add sqlite-jdbc.jar to your classpath.");
             System.err.println("Download from: https://github.com/xerial/sqlite-jdbc/releases");
-            e.printStackTrace();
             return null;
             
         } catch (SQLException e) {
@@ -42,14 +45,14 @@ public class Database {
     }
     
     /**
-     * Initializes the database by creating necessary tables
+     * Inisialisasi database - Buat tabel jika belum ada
      */
     public static void init() {
         System.out.println("Initializing database...");
         
         try (Connection conn = getConnection()) {
             if (conn == null) {
-                System.err.println("Failed to initialize database: Connection is null");
+                System.err.println("Failed to initialize: Connection is null");
                 return;
             }
             
@@ -57,19 +60,25 @@ public class Database {
             System.out.println("Database initialized successfully!");
             
         } catch (Exception e) {
-            System.err.println("Error during database initialization:");
+            System.err.println("Error during initialization:");
             e.printStackTrace();
         }
     }
     
     /**
-     * Creates all necessary database tables
+     * Buat tabel-tabel yang diperlukan
+     * Tabel history: menyimpan skor dan statistik pemain
      */
-   
     private static void createTables(Connection conn) throws SQLException {
         try (Statement stmt = conn.createStatement()) {
             
-            // Create history table with bullets_missed column
+            // Tabel history dengan kolom:
+            // - id: Primary key auto increment
+            // - username: Nama pemain
+            // - score: Skor akhir
+            // - ammo: Peluru tersisa
+            // - bullets_missed: Jumlah tembakan meleset
+            // - created_at: Waktu permainan
             String createHistoryTable = """
                 CREATE TABLE IF NOT EXISTS history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,22 +91,22 @@ public class Database {
                 """;
             
             stmt.execute(createHistoryTable);
-            System.out.println("Table 'history' created or already exists");
+            System.out.println("✓ Table 'history' ready");
             
-            // Create index for faster queries
+            // Index untuk query lebih cepat (sort by score)
             String createScoreIndex = """
                 CREATE INDEX IF NOT EXISTS idx_score 
                 ON history(score DESC)
                 """;
             
             stmt.execute(createScoreIndex);
-            System.out.println("Index on 'score' created or already exists");
+            System.out.println("✓ Index on 'score' ready");
         }
     }
     
     /**
-     * Tests the database connection
-     * @return true if connection is successful, false otherwise
+     * Test koneksi database
+     * @return true jika berhasil connect, false jika gagal
      */
     public static boolean testConnection() {
         try (Connection conn = getConnection()) {
